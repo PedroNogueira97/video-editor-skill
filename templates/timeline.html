@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timeline — primeiro corte</title>
+<style>
+  :root {
+    --bg: #111317; --painel: #1a1d23; --borda: #2b3038; --texto: #e6e8eb; --fraco: #8b929c;
+    --fala: #3fae6a; --tela: #3d7be0; --removido: #d0453f; --silencio: #262a31;
+    --sel: #ffd400; --cursor: #ff5c5c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--texto);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+         height: 100vh; display: grid; grid-template-rows: auto 1fr auto auto; }
+  header { display: flex; gap: 16px; align-items: center; padding: 8px 14px;
+           border-bottom: 1px solid var(--borda); background: var(--painel); }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .dur { color: var(--fraco); font-variant-numeric: tabular-nums; }
+  header .esp { flex: 1; }
+  #status { color: var(--fraco); }
+  #status.erro { color: var(--removido); }
+  #status.ok { color: var(--fala); }
+  button { background: #2a2f37; color: var(--texto); border: 1px solid var(--borda);
+           border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer; }
+  button:hover:not(:disabled) { background: #343a44; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primario { background: #2f6fd6; border-color: #2f6fd6; }
+  button.primario:hover { background: #3a7bea; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; min-height: 0; }
+  .previa { display: flex; align-items: center; justify-content: center; padding: 12px;
+            min-height: 0; }
+  .stage { position: relative; background: #000; aspect-ratio: 16 / 9;
+           width: min(100%, calc((100vh - 330px) * 16 / 9)); overflow: hidden;
+           border-radius: 4px; }
+  .stage video { position: absolute; object-fit: contain; }
+  #cam { inset: 0; width: 100%; height: 100%; }
+  #scr { display: none; object-position: left top; }
+  .stage.pip #scr { display: block; }
+  .stage.pip #cam { object-position: right bottom; }
+  #borroes { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+  .borrao { position: absolute; backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+            background: rgba(120, 120, 120, .35); border-radius: 3px; }
+  #card { position: absolute; z-index: 4; display: none; pointer-events: none; }
+  #listaBorroes { max-height: 32%; overflow-y: auto; border-top: 1px solid var(--borda);
+                  font-size: 12px; }
+  #listaBorroes:empty { display: none; }
+  .bz { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: center;
+        padding: 3px 12px; }
+  .bz .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bz .tc { color: var(--fraco); cursor: pointer; font-variant-numeric: tabular-nums; }
+  .bz.off .txt { color: var(--fraco); text-decoration: line-through; }
+  #msgVideo { position: absolute; inset: 0; display: none; align-items: center;
+              justify-content: center; text-align: center; padding: 20px; color: var(--fraco); }
+  aside { border-left: 1px solid var(--borda); display: flex; flex-direction: column;
+          min-height: 0; background: var(--painel); }
+  aside h2 { font-size: 13px; margin: 0; padding: 8px 12px; color: var(--fraco);
+             border-bottom: 1px solid var(--borda); font-weight: 600; }
+  #transcricao { overflow-y: auto; flex: 1; padding: 4px 0; }
+  .frase { padding: 4px 12px; cursor: pointer; display: grid;
+           grid-template-columns: 62px 1fr; gap: 8px; }
+  .frase:hover { background: #222730; }
+  .frase .tc { color: var(--fraco); font-variant-numeric: tabular-nums; font-size: 12px; }
+  .frase.atual { background: #23324a; }
+  .frase.cortada .txt { text-decoration: line-through; color: var(--fraco); }
+  #info { padding: 8px 12px; border-top: 1px solid var(--borda); font-size: 13px;
+          min-height: 64px; color: var(--fraco); }
+  #info b { color: var(--texto); font-weight: 600; }
+  .controles { display: flex; gap: 8px; align-items: center; padding: 6px 14px;
+               border-top: 1px solid var(--borda); background: var(--painel); flex-wrap: wrap; }
+  .controles .tempo { font-variant-numeric: tabular-nums; min-width: 230px; }
+  .controles label { color: var(--fraco); display: flex; gap: 4px; align-items: center; }
+  .legenda { display: flex; gap: 12px; margin-left: auto; color: var(--fraco); font-size: 12px; }
+  .legenda i { display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+               vertical-align: -2px; margin-right: 4px; }
+  #tl { overflow-x: auto; overflow-y: hidden; position: relative; height: 128px;
+        background: var(--bg); border-top: 1px solid var(--borda); user-select: none; }
+  #trilha { position: relative; height: 100%; }
+  .regua { position: absolute; top: 0; left: 0; right: 0; height: 22px;
+           border-bottom: 1px solid var(--borda); }
+  .tick { position: absolute; top: 0; height: 22px; border-left: 1px solid #3a404a;
+          padding-left: 3px; font-size: 11px; color: var(--fraco); white-space: nowrap; }
+  .lane { position: absolute; left: 0; right: 0; }
+  #laneFala { top: 30px; height: 56px;
+              background: repeating-linear-gradient(135deg, var(--silencio) 0 6px, #1f2228 6px 12px); }
+  #laneTela { top: 94px; height: 16px; background: #181b20; }
+  .lane-nome { position: sticky; left: 0; font-size: 10px; color: var(--fraco);
+               padding: 0 4px; z-index: 3; pointer-events: none; }
+  .blk { position: absolute; top: 0; bottom: 0; background: var(--fala);
+         border-radius: 3px; border: 1px solid rgba(0,0,0,.35); cursor: pointer; }
+  .blk.tela { background: var(--tela); }
+  .blk.removido { background: repeating-linear-gradient(135deg, var(--removido) 0 5px, #8e2f2b 5px 10px);
+                  opacity: .85; }
+  .blk.sel { outline: 2px solid var(--sel); outline-offset: 1px; z-index: 2; }
+  .blk .h { position: absolute; top: 0; bottom: 0; width: 6px; cursor: ew-resize; }
+  .blk .h.l { left: -3px; } .blk .h.r { right: -3px; }
+  .blk.sel .h { background: rgba(255, 212, 0, .55); }
+  .trecho-tela { position: absolute; top: 3px; bottom: 3px; background: #2a4f8f; border-radius: 3px; }
+  #cursor { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--cursor);
+            pointer-events: none; z-index: 4; }
+  .atalhos { padding: 4px 14px 6px; color: var(--fraco); font-size: 12px; background: var(--painel); }
+  kbd { background: #2a2f37; border: 1px solid var(--borda); border-radius: 3px;
+        padding: 0 4px; font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="titulo">Timeline</h1>
+  <span class="dur" id="duracoes"></span>
+  <span class="esp"></span>
+  <span id="status"></span>
+  <button id="btUndo" title="Desfazer (Ctrl+Z)">↶ Desfazer</button>
+  <button id="btRedo" title="Refazer (Ctrl+Shift+Z)">↷ Refazer</button>
+  <button id="btSalvar" class="primario" title="Salvar (Ctrl+S)">Salvar</button>
+</header>
+<main>
+  <div class="previa">
+    <div class="stage" id="stage">
+      <video id="cam" preload="auto" playsinline></video>
+      <video id="scr" preload="auto" playsinline muted></video>
+      <div id="borroes"></div>
+      <img id="card" alt="">
+      <div id="msgVideo"></div>
+    </div>
+  </div>
+  <aside>
+    <h2>Transcrição (clique para ir)</h2>
+    <div id="transcricao"></div>
+    <h2 id="tituloBorroes" style="display:none">Dados sigilosos borrados (desmarque o que pode aparecer)</h2>
+    <div id="listaBorroes"></div>
+    <div id="info">Clique num bloco para selecionar.</div>
+  </aside>
+</main>
+<div>
+  <div class="controles">
+    <button id="btPlay" title="Espaço">▶ Tocar</button>
+    <span class="tempo" id="tempo"></span>
+    <label><input type="checkbox" id="pular" checked> pular cortes</label>
+    <button id="btTela" title="T">Tela liga/desliga</button>
+    <button id="btRemover" title="Delete / R">Remover/restaurar</button>
+    <button id="btDividir" title="S">Dividir no cursor</button>
+    <label>zoom <input type="range" id="zoom" min="0" max="1000" value="0"></label>
+    <button id="btAjustar">Ajustar</button>
+    <span class="legenda">
+      <span><i style="background:var(--fala)"></i>fala</span>
+      <span><i style="background:var(--tela)"></i>fala + tela</span>
+      <span><i style="background:var(--removido)"></i>take removido</span>
+      <span><i style="background:var(--silencio)"></i>silêncio cortado</span>
+    </span>
+  </div>
+  <div id="tl">
+    <div id="trilha">
+      <div class="regua" id="regua"></div>
+      <div class="lane" id="laneFala"></div>
+      <div class="lane" id="laneTela"><span class="lane-nome">tela detectada</span></div>
+      <div id="cursor"></div>
+    </div>
+  </div>
+</div>
+<div class="atalhos">
+  <kbd>Espaço</kbd> tocar/pausar · <kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> voltar/pausar/avançar ·
+  <kbd>←</kbd><kbd>→</kbd> 1s (<kbd>Shift</kbd> 5s) · <kbd>,</kbd><kbd>.</kbd> 1 frame ·
+  <kbd>↑</kbd><kbd>↓</kbd> bloco anterior/próximo · <kbd>T</kbd> tela · <kbd>Del</kbd>/<kbd>R</kbd> remover/restaurar ·
+  <kbd>S</kbd> dividir · <kbd>Ctrl+Z</kbd> desfazer · <kbd>Ctrl+S</kbd> salvar · arraste as bordas do bloco selecionado
+</div>
+
+<script id="dados" type="application/json">__DADOS__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("dados").textContent);
+let P = D.projeto;
+let blocks = P.blocos;
+const frases = D.frases || [];
+const dur = P.camera.duracao;
+const fps = (() => { const [n, d] = String(P.camera.fps).split("/").map(Number); return n / (d || 1); })();
+const temTela = !!(P.tela && D.proxies.tela);
+const viaServidor = location.protocol.startsWith("http");
+
+const $ = (id) => document.getElementById(id);
+const cam = $("cam"), scr = $("scr"), stage = $("stage"), tl = $("tl"), trilha = $("trilha");
+let pps = 1;                 // pixels por segundo
+let sel = -1;
+let undo = [], redo = [];
+let sujo = false;
+let taxa = 1, rebobinar = null;
+
+// ------------------------------------------------------------ utilidades
+function tc(t, ms = true) {
+  t = Math.max(0, t);
+  const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
+  const ss = ms ? s.toFixed(2).padStart(5, "0") : String(Math.floor(s)).padStart(2, "0");
+  return (h ? h + ":" : "") + String(m).padStart(2, "0") + ":" + ss;
+}
+function status(msg, cls = "") { const s = $("status"); s.textContent = msg; s.className = cls; }
+function ordenar() { blocks.sort((a, b) => a.inicio - b.inicio); }
+function ativos() { return blocks.filter((b) => !b.removido); }
+function blocoEm(t) { return blocks.findIndex((b) => b.inicio - 1e-3 <= t && t < b.fim); }
+function ativoEm(t) { return blocks.find((b) => !b.removido && b.inicio - 1e-3 <= t && t < b.fim); }
+function proximoAtivo(t) { return blocks.find((b) => !b.removido && b.inicio >= t - 1e-3); }
+function duracaoFinal() { return ativos().reduce((s, b) => s + b.fim - b.inicio, 0); }
+function tempoEditado(t) {
+  let s = 0;
+  for (const b of blocks) {
+    if (b.removido) continue;
+    if (b.fim <= t) s += b.fim - b.inicio;
+    else if (b.inicio <= t) s += t - b.inicio;
+  }
+  return s;
+}
+function marcarSujo() { sujo = true; status("alterações não salvas"); atualizarCabecalho(); }
+
+// --------------------------------------------------------------- histórico
+function guardar() {
+  undo.push(JSON.stringify(blocks));
+  if (undo.length > 300) undo.shift();
+  redo = [];
+  botoes();
+}
+function desfazer() {
+  if (!undo.length) return;
+  redo.push(JSON.stringify(blocks));
+  blocks = JSON.parse(undo.pop());
+  sel = Math.min(sel, blocks.length - 1);
+  marcarSujo(); desenhar();
+}
+function refazer() {
+  if (!redo.length) return;
+  undo.push(JSON.stringify(blocks));
+  blocks = JSON.parse(redo.pop());
+  marcarSujo(); desenhar();
+}
+
+// ------------------------------------------------------------------ ações
+function selecionar(i, ir = true) {
+  sel = i;
+  if (ir && i >= 0) irPara(blocks[i].inicio);
+  desenhar();
+}
+function alternarTela() {
+  if (sel < 0 || !temTela) return;
+  guardar(); blocks[sel].tela = !blocks[sel].tela; marcarSujo(); desenhar();
+}
+function alternarRemovido() {
+  if (sel < 0) return;
+  guardar();
+  const b = blocks[sel];
+  b.removido = !b.removido;
+  if (b.removido && !b.motivo) b.motivo = "removido na timeline";
+  marcarSujo(); desenhar();
+}
+function dividir() {
+  const t = cam.currentTime, i = blocoEm(t);
+  if (i < 0) { status("o cursor precisa estar dentro de um bloco"); return; }
+  const b = blocks[i];
+  if (t - b.inicio < 0.05 || b.fim - t < 0.05) return;
+  guardar();
+  const t3 = Math.round(t * 1000) / 1000;
+  blocks.splice(i, 1, { ...b, fim: t3 }, { ...b, inicio: t3 });
+  sel = i + 1; marcarSujo(); desenhar();
+}
+
+// ------------------------------------------------------------- desenho
+function escolherPasso() {
+  for (const p of [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800])
+    if (p * pps >= 80) return p;
+  return 3600;
+}
+function desenharRegua() {
+  const passo = escolherPasso(), partes = [];
+  for (let t = 0; t <= dur; t += passo)
+    partes.push(`<div class="tick" style="left:${t * pps}px">${tc(t, false)}</div>`);
+  $("regua").innerHTML = partes.join("");
+}
+function desenharBlocos() {
+  const partes = ['<span class="lane-nome">fala</span>'];
+  blocks.forEach((b, i) => {
+    const cls = ["blk", b.tela ? "tela" : "", b.removido ? "removido" : "", i === sel ? "sel" : ""].join(" ");
+    const dica = `${tc(b.inicio)} → ${tc(b.fim)}` + (b.removido ? ` · removido: ${b.motivo || ""}` : "") +
+                 (b.tela ? " · com tela" : "");
+    partes.push(`<div class="${cls}" data-i="${i}" title="${dica.replace(/"/g, "&quot;")}" ` +
+      `style="left:${b.inicio * pps}px;width:${Math.max(1, (b.fim - b.inicio) * pps)}px">` +
+      (i === sel ? '<div class="h l" data-lado="l"></div><div class="h r" data-lado="r"></div>' : "") +
+      "</div>");
+  });
+  $("laneFala").innerHTML = partes.join("");
+  const tt = (P.trechos_tela || []).map(([a, b]) =>
+    `<div class="trecho-tela" style="left:${a * pps}px;width:${(b - a) * pps}px"></div>`);
+  $("laneTela").innerHTML = '<span class="lane-nome">tela detectada</span>' + tt.join("");
+  $("laneTela").style.display = P.tela ? "" : "none";
+}
+function desenharFrases() {
+  const box = $("transcricao");
+  box.innerHTML = frases.map(([a, b, txt], i) =>
+    `<div class="frase" data-f="${i}"><span class="tc">${tc(a, false)}</span><span class="txt"></span></div>`).join("");
+  box.querySelectorAll(".frase").forEach((el, i) => { el.querySelector(".txt").textContent = frases[i][2]; });
+  marcarFrasesCortadas();
+}
+function marcarFrasesCortadas() {
+  document.querySelectorAll(".frase").forEach((el, i) => {
+    const [a, b] = frases[i];
+    el.classList.toggle("cortada", !ativoEm((a + b) / 2) && !ativoEm(a + 0.05));
+  });
+}
+function atualizarCabecalho() {
+  $("duracoes").textContent = `original ${tc(dur, false)} → final ${tc(duracaoFinal(), false)} · ` +
+    `${ativos().length} blocos`;
+}
+function infoSel() {
+  const box = $("info");
+  if (sel < 0) { box.textContent = "Clique num bloco para selecionar."; return; }
+  const b = blocks[sel];
+  box.innerHTML = `<b>Bloco ${sel + 1}</b> · ${tc(b.inicio)} → ${tc(b.fim)} (${(b.fim - b.inicio).toFixed(2)}s)<br>` +
+    (b.removido ? `<b style="color:var(--removido)">removido</b> · ${b.motivo || ""}` : "ativo") +
+    (temTela ? ` · tela: <b>${b.tela ? "sim" : "não"}</b>` : "");
+}
+function botoes() {
+  $("btUndo").disabled = !undo.length; $("btRedo").disabled = !redo.length;
+  $("btTela").disabled = !temTela || sel < 0;
+  $("btRemover").disabled = sel < 0;
+}
+function desenhar() {
+  ordenar();
+  trilha.style.width = Math.ceil(dur * pps) + 40 + "px";
+  desenharRegua(); desenharBlocos(); marcarFrasesCortadas(); atualizarCabecalho(); infoSel(); botoes();
+  atualizarCursor();
+}
+
+// ---------------------------------------------------------------- zoom
+const zoomMin = () => Math.max(0.05, (tl.clientWidth - 40) / dur);
+function aplicarZoom(v) {
+  const min = zoomMin(), max = 200;
+  pps = min * Math.pow(max / min, v / 1000);
+  desenhar();
+  tl.scrollLeft = cam.currentTime * pps - tl.clientWidth / 2;
+}
+$("zoom").addEventListener("input", (e) => aplicarZoom(+e.target.value));
+$("btAjustar").onclick = () => { $("zoom").value = 0; aplicarZoom(0); };
+tl.addEventListener("wheel", (e) => {
+  if (!e.ctrlKey) return;
+  e.preventDefault();
+  const z = $("zoom"); z.value = Math.max(0, Math.min(1000, +z.value - Math.sign(e.deltaY) * 60));
+  aplicarZoom(+z.value);
+}, { passive: false });
+
+// --------------------------------------------------------- reprodução
+function irPara(t) {
+  t = Math.max(0, Math.min(dur - 0.01, t));
+  cam.currentTime = t;
+  sincronizarTela(true);
+  atualizarCursor();
+}
+function tocando() { return !cam.paused; }
+function tocar() { pararRebobinar(); cam.play().catch((e) => status("não consegui tocar: " + e.message, "erro")); }
+function pausar() { pararRebobinar(); cam.pause(); scr.pause(); taxa = 1; cam.playbackRate = 1; }
+function alternarPlay() { tocando() ? pausar() : tocar(); }
+function pararRebobinar() { if (rebobinar) { clearInterval(rebobinar.id); rebobinar = null; } }
+function teclaJ() {
+  cam.pause(); scr.pause();
+  const vel = rebobinar ? Math.min(rebobinar.vel * 2, 16) : 2;
+  pararRebobinar();
+  rebobinar = { vel, id: setInterval(() => irPara(cam.currentTime - 0.05 * vel), 50) };
+}
+function teclaL() {
+  pararRebobinar();
+  if (!tocando()) { taxa = 1; tocar(); }
+  else taxa = Math.min(taxa === 1 ? 1.5 : taxa + 0.5, 4);
+  cam.playbackRate = taxa; scr.playbackRate = taxa;
+}
+function caixaConteudoTela() {
+  // área onde o vídeo da tela aparece (object-fit: contain, alinhado no topo/esquerda)
+  const r = scr.getBoundingClientRect(), s = stage.getBoundingClientRect();
+  const ar = P.tela.largura / P.tela.altura;
+  let w = r.width, h = r.height;
+  if (ar > w / h) h = w / ar; else w = h * ar;
+  return { x: r.left - s.left, y: r.top - s.top, w, h };
+}
+function atualizarBorroes(alvo, pip) {
+  const box = $("borroes");
+  let html = "";
+  if (pip) {
+    const c = caixaConteudoTela(), sx = c.w / P.tela.largura, sy = c.h / P.tela.altura;
+    for (const b of P.borroes || []) {
+      if (!b.ativo) continue;
+      for (const o of b.ocorrencias) {
+        if (o.ini <= alvo && alvo < o.fim)
+          html += `<div class="borrao" style="left:${c.x + o.x * sx}px;top:${c.y + o.y * sy}px;` +
+                  `width:${o.w * sx}px;height:${o.h * sy}px"></div>`;
+      }
+    }
+  }
+  if (box.dataset.html !== html) { box.innerHTML = html; box.dataset.html = html; }
+}
+function atualizarCard() {
+  const img = $("card");
+  if (!D.card) return;
+  const T = tempoEditado(cam.currentTime);
+  let janela = null;
+  for (const s of P.sobreposicoes || []) {
+    if (s.tipo !== "redes") continue;
+    const a = tempoEditado(s.inicio), b = tempoEditado(s.fim);
+    if (T >= a && T < b) janela = [a, b];
+  }
+  if (!janela) { img.style.display = "none"; return; }
+  const p = Math.max(0, Math.min(1, (T - janela[0]) / 0.45, (janela[1] - T) / 0.45));
+  const e = 1 - Math.pow(1 - p, 3);
+  img.style.display = "block";
+  img.style.transform = `translateX(calc(${-(1 - e) * 100}% - ${(1 - e) * 60}px))`;
+}
+function desenharBorroes() {
+  const lista = P.borroes || [];
+  $("tituloBorroes").style.display = lista.length ? "" : "none";
+  $("listaBorroes").innerHTML = lista.map((b, i) =>
+    `<div class="bz ${b.ativo ? "" : "off"}"><input type="checkbox" data-b="${i}" ${b.ativo ? "checked" : ""}>` +
+    `<span class="txt" title=""></span><span class="tc" data-ir="${i}">` +
+    `${tc(b.ocorrencias[0].ini + (P.offset || 0), false)}</span></div>`).join("");
+  document.querySelectorAll("#listaBorroes .txt").forEach((el, i) => {
+    el.textContent = `${lista[i].tipo}: ${lista[i].texto}`;
+    el.title = `${lista[i].ocorrencias.length} aparição(ões) na tela`;
+  });
+}
+$("listaBorroes").addEventListener("change", (e) => {
+  const i = e.target.dataset.b;
+  if (i === undefined) return;
+  P.borroes[+i].ativo = e.target.checked;
+  marcarSujo(); desenharBorroes();
+});
+$("listaBorroes").addEventListener("click", (e) => {
+  const i = e.target.dataset.ir;
+  if (i !== undefined) irPara(P.borroes[+i].ocorrencias[0].ini + (P.offset || 0) + 0.05);
+});
+function sincronizarTela(forcar = false) {
+  const t = cam.currentTime, i = blocoEm(t);
+  const b = i >= 0 ? blocks[i] : null;
+  const alvo = t - (P.offset || 0);
+  const pip = temTela && b && b.tela && alvo >= 0 && (!scr.duration || alvo <= scr.duration);
+  stage.classList.toggle("pip", !!pip);
+  atualizarBorroes(alvo, !!pip);
+  atualizarCard();
+  if (!pip) { if (!scr.paused) scr.pause(); return; }
+  if (forcar || Math.abs(scr.currentTime - alvo) > 0.3) scr.currentTime = alvo;
+  if (tocando() && scr.paused) scr.play().catch(() => {});
+  if (!tocando() && !scr.paused) scr.pause();
+}
+function atualizarCursor() {
+  const t = cam.currentTime;
+  $("cursor").style.left = t * pps + "px";
+  $("tempo").textContent = `final ${tc(tempoEditado(t))} / ${tc(duracaoFinal())} · original ${tc(t)}`;
+}
+let fraseAtual = -1;
+function atualizarFrase() {
+  const t = cam.currentTime;
+  let lo = 0, hi = frases.length - 1, achou = -1;
+  while (lo <= hi) {
+    const m = (lo + hi) >> 1;
+    if (frases[m][0] <= t) { achou = m; lo = m + 1; } else hi = m - 1;
+  }
+  if (achou >= 0 && t > frases[achou][1] + 1) achou = -1;
+  if (achou === fraseAtual) return;
+  document.querySelector(".frase.atual")?.classList.remove("atual");
+  fraseAtual = achou;
+  if (achou >= 0) {
+    const el = document.querySelector(`.frase[data-f="${achou}"]`);
+    el.classList.add("atual");
+    el.scrollIntoView({ block: "nearest" });
+  }
+}
+function quadro() {
+  if (tocando() && $("pular").checked) {
+    const t = cam.currentTime;
+    if (!ativoEm(t)) {
+      const prox = proximoAtivo(t);
+      if (prox) cam.currentTime = prox.inicio; else pausar();
+    }
+  }
+  sincronizarTela();
+  atualizarCursor();
+  atualizarFrase();
+  if (tocando()) {
+    const x = cam.currentTime * pps;
+    if (x < tl.scrollLeft || x > tl.scrollLeft + tl.clientWidth - 40) tl.scrollLeft = x - 80;
+  }
+  $("btPlay").textContent = tocando() ? "❚❚ Pausar" : "▶ Tocar";
+  requestAnimationFrame(quadro);
+}
+
+// ------------------------------------------------- mouse na timeline
+let arrasto = null;
+function tempoDoMouse(e) {
+  const r = trilha.getBoundingClientRect();
+  return Math.max(0, Math.min(dur, (e.clientX - r.left) / pps));
+}
+$("laneFala").addEventListener("pointerdown", (e) => {
+  const h = e.target.closest(".h"), el = e.target.closest(".blk");
+  if (h && el) {
+    const i = +el.dataset.i;
+    guardar();
+    arrasto = { i, lado: h.dataset.lado };
+    e.target.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    return;
+  }
+  if (el) { selecionar(+el.dataset.i, false); irPara(tempoDoMouse(e)); return; }
+  irPara(tempoDoMouse(e));
+});
+$("regua").addEventListener("pointerdown", (e) => irPara(tempoDoMouse(e)));
+document.addEventListener("pointermove", (e) => {
+  if (!arrasto) return;
+  const b = blocks[arrasto.i], ant = blocks[arrasto.i - 1], prox = blocks[arrasto.i + 1];
+  let t = Math.round(tempoDoMouse(e) * 1000) / 1000;
+  if (arrasto.lado === "l") {
+    t = Math.max(ant ? ant.fim : 0, Math.min(b.fim - 0.1, t));
+    b.inicio = t;
+  } else {
+    t = Math.min(prox ? prox.inicio : dur, Math.max(b.inicio + 0.1, t));
+    b.fim = t;
+  }
+  const el = document.querySelector(`.blk[data-i="${arrasto.i}"]`);
+  el.style.left = b.inicio * pps + "px";
+  el.style.width = (b.fim - b.inicio) * pps + "px";
+  cam.currentTime = t; sincronizarTela(true);
+  infoSel();
+});
+document.addEventListener("pointerup", () => {
+  if (!arrasto) return;
+  arrasto = null; marcarSujo(); desenhar();
+});
+$("transcricao").addEventListener("click", (e) => {
+  const el = e.target.closest(".frase");
+  if (!el) return;
+  const t = frases[+el.dataset.f][0];
+  const i = blocoEm(t + 0.01);
+  sel = i; irPara(t); desenhar();
+});
+
+// ------------------------------------------------------------ teclado
+document.addEventListener("keydown", (e) => {
+  if (e.target.matches("input[type=text], textarea")) return;
+  const k = e.key, ctrl = e.ctrlKey || e.metaKey;
+  if (ctrl && k.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? refazer() : desfazer(); return; }
+  if (ctrl && k.toLowerCase() === "y") { e.preventDefault(); refazer(); return; }
+  if (ctrl && k.toLowerCase() === "s") { e.preventDefault(); salvar(); return; }
+  if (ctrl) return;
+  const passo = e.shiftKey ? 5 : 1;
+  switch (k) {
+    case " ": e.preventDefault(); alternarPlay(); break;
+    case "ArrowLeft": e.preventDefault(); irPara(cam.currentTime - passo); break;
+    case "ArrowRight": e.preventDefault(); irPara(cam.currentTime + passo); break;
+    case ",": irPara(cam.currentTime - 1 / fps); break;
+    case ".": irPara(cam.currentTime + 1 / fps); break;
+    case "ArrowUp": e.preventDefault(); {
+      const i = sel >= 0 ? sel - 1 : blocoEm(cam.currentTime) - 1;
+      if (i >= 0) selecionar(i);
+    } break;
+    case "ArrowDown": e.preventDefault(); {
+      let i = sel >= 0 ? sel + 1 : blocks.findIndex((b) => b.inicio >= cam.currentTime);
+      if (i >= 0 && i < blocks.length) selecionar(i);
+    } break;
+    case "Home": irPara(0); break;
+    case "End": irPara(dur); break;
+    case "j": case "J": teclaJ(); break;
+    case "k": case "K": pausar(); break;
+    case "l": case "L": teclaL(); break;
+    case "t": case "T": alternarTela(); break;
+    case "Delete": case "Backspace": case "r": case "R": e.preventDefault(); alternarRemovido(); break;
+    case "s": case "S": dividir(); break;
+    case "Escape": sel = -1; desenhar(); break;
+  }
+});
+
+// -------------------------------------------------------------- salvar
+async function salvar() {
+  ordenar();
+  P.blocos = blocks;
+  const texto = JSON.stringify(P, null, 1);
+  if (viaServidor) {
+    try {
+      const r = await fetch("salvar", { method: "POST", headers: { "Content-Type": "application/json" }, body: texto });
+      if (!r.ok) throw new Error(r.status + " " + r.statusText);
+      sujo = false; status("salvo no projeto.json ✓", "ok"); return;
+    } catch (err) {
+      status("não consegui salvar no servidor (" + err.message + "); baixando o arquivo", "erro");
+    }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([texto], { type: "application/json" }));
+  a.download = "projeto.json";
+  document.body.appendChild(a); a.click(); a.remove();
+  sujo = false;
+  status("projeto.json baixado: substitua o da pasta do vídeo", "ok");
+}
+window.addEventListener("beforeunload", (e) => { if (sujo) { e.preventDefault(); e.returnValue = ""; } });
+
+// ---------------------------------------------------------------- início
+$("btPlay").onclick = alternarPlay;
+$("btUndo").onclick = desfazer; $("btRedo").onclick = refazer;
+$("btSalvar").onclick = salvar;
+$("btTela").onclick = alternarTela; $("btRemover").onclick = alternarRemovido;
+$("btDividir").onclick = dividir;
+for (const v of [cam, scr]) {
+  v.addEventListener("error", () => {
+    const m = $("msgVideo");
+    m.style.display = "flex";
+    m.textContent = `Não consegui abrir ${v.getAttribute("src")}. Gere os proxies com youtube_timeline.py ` +
+                    `(ou abra pelo --servir).`;
+  });
+}
+
+async function iniciar() {
+  if (viaServidor) {
+    try {
+      const r = await fetch("projeto.json", { cache: "no-store" });
+      if (r.ok) { P = await r.json(); blocks = P.blocos; }
+    } catch (e) { /* sem servidor: fica com a cópia embutida */ }
+  }
+  const pasta = (P.camera.arquivo || "").split("/").slice(-2, -1)[0] || "";
+  $("titulo").textContent = "Timeline — " + pasta;
+  document.title = "Timeline — " + pasta;
+  cam.src = D.proxies.camera;
+  if (temTela) scr.src = D.proxies.tela;
+  const L = P.layout || { escala_tela: 0.72, escala_camera: 0.25, margem: 24 };
+  const W = (P.formato || {}).largura || 1920, H = (P.formato || {}).altura || 1080;
+  Object.assign(scr.style, { left: L.margem / W * 100 + "%", top: L.margem / H * 100 + "%",
+                             width: L.escala_tela * 100 + "%", height: L.escala_tela * 100 + "%" });
+  const s = document.createElement("style");
+  s.textContent = `.stage.pip #cam { inset: auto; right: ${L.margem / W * 100}%; bottom: ${L.margem / H * 100}%;
+                   width: ${L.escala_camera * 100}%; height: ${L.escala_camera * 100}%; }`;
+  document.head.appendChild(s);
+  if (D.card) {
+    const img = $("card");
+    img.src = D.card.src;
+    Object.assign(img.style, { left: 48 / W * 100 + "%", bottom: 48 / H * 100 + "%",
+                               width: D.card.w / W * 100 + "%" });
+  }
+  desenharFrases();
+  desenharBorroes();
+  aplicarZoom(0);
+  status(viaServidor ? "Salvar grava no projeto.json" : "Salvar baixa o projeto.json");
+  requestAnimationFrame(quadro);
+}
+iniciar();
+</script>
+</body>
+</html>
