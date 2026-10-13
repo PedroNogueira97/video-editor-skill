@@ -238,10 +238,138 @@ def grupos_legenda(palavras, maximo, total):
     return out
 
 
+# ------------------------------------------------- efeitos (estilo yap)
+
+def para_timeline(t, segs):
+    """Tempo original da câmera → tempo do vídeo final (pula o gancho; se cair
+    num corte, vai para o começo do trecho seguinte). None se ficou de fora."""
+    t0 = 0.0
+    for a, z, tipo in segs:
+        if tipo != "gancho" and t < z:
+            return q(t0 + max(t, a) - a)
+        t0 += z - a
+    return None
+
+
+def normaliza(s):
+    return "".join(c for c in s.lower() if c.isalnum())
+
+
+def compor_efeitos(projeto, segs, total, pasta_hf):
+    """projeto["efeitos"] → (elementos HTML, linhas de animação GSAP).
+
+    Todos os tempos no projeto.json são do vídeo ORIGINAL (como os blocos):
+      zooms:   {inicio, fim, escala, estilo: punch|suave|impacto, de, foco_y}
+      sons:    {t, som (templates/sfx/<som>.mp3) ou arquivo, volume}
+      imagens: {inicio, fim, arquivo, largura, y, fundo}
+      textos:  {inicio, fim, texto, y, cor, fundo, rotacao}
+    """
+    ef = projeto.get("efeitos") or {}
+    elems, anim = [], []
+    manifesto = json.loads((SKILL / "templates" / "sfx" / "manifest.json").read_text())
+
+    for i, z in enumerate(sorted(ef.get("zooms", []), key=lambda z: z["inicio"])):
+        a, b = para_timeline(z["inicio"], segs), para_timeline(z["fim"], segs)
+        if a is None:
+            continue
+        b = total if b is None else b
+        s, estilo = z.get("escala", 1.2), z.get("estilo", "punch")
+        orig = f'"50% {round(z.get("foco_y", 0.35) * 100)}%"'
+        if estilo == "suave":
+            anim.append(f'  tl.fromTo(".video", {{scale: {z.get("de", 1)}, transformOrigin: {orig}}}, '
+                        f'{{scale: {s}, duration: {round(b - a, 3)}, ease: "sine.inOut", '
+                        f'immediateRender: false}}, {a});')
+        else:
+            anim.append(f'  tl.set(".video", {{scale: {s}, transformOrigin: {orig}}}, {a});')
+            if estilo == "impacto":   # tremida curta, determinística
+                for k, (dx, dy) in enumerate([(-14, 8), (12, -10), (-8, 6), (5, -3), (0, 0)]):
+                    anim.append(f'  tl.set(".video", {{x: {dx}, y: {dy}}}, {round(a + 0.033 * (k + 1), 3)});')
+        if b < total:
+            anim.append(f'  tl.set(".video", {{scale: 1, x: 0, y: 0}}, {b});')
+
+    sfx = pasta_hf / "assets" / "sfx"
+    for i, s in enumerate(ef.get("sons", [])):
+        t = para_timeline(s["t"], segs)
+        if t is None:
+            continue
+        if s.get("arquivo"):
+            src = Path(s["arquivo"])
+            dur = float(run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                             "-of", "csv=p=0", str(src)], text=True).stdout)
+        else:
+            src = SKILL / "templates" / "sfx" / manifesto[s["som"]]["file"]
+            dur = manifesto[s["som"]]["duration"]
+        sfx.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, sfx / src.name)
+        d = round(min(dur, total - t), 3)
+        if d > 0.05:
+            elems.append(f'      <audio id="sfx{i}" class="clip" src="assets/sfx/{src.name}" '
+                         f'data-start="{t}" data-duration="{d}" data-track-index="{3 + i % 3}" '
+                         f'data-volume="{s.get("volume", 0.4)}"></audio>')
+
+    img = pasta_hf / "assets" / "img"
+    for i, m in enumerate(ef.get("imagens", [])):
+        a, b = para_timeline(m["inicio"], segs), para_timeline(m["fim"], segs)
+        if a is None:
+            continue
+        b = min(total, b if b is not None else total)
+        img.mkdir(parents=True, exist_ok=True)
+        src = Path(m["arquivo"])
+        shutil.copy2(src, img / src.name)
+        fundo = m.get("fundo", "rgba(12, 10, 20, 0.88)")
+        rot = m.get("rotacao", 0)
+        credito = (f'<p class="cred">{html.escape(m["credito"])}</p>' if m.get("credito") else "")
+        elems.append(
+            f'      <div id="img{i}" class="clip ov" data-start="{a}" data-duration="{round(b - a, 3)}" '
+            f'data-track-index="2" style="top: {round(m.get("y", 0.14) * H)}px">'
+            f'<div class="ov-in" style="background: {fundo}"><img src="assets/img/{quote(src.name)}" '
+            f'style="width: {m.get("largura", 720)}px; border-radius: {m.get("raio", 0)}px" alt="" />'
+            f'{credito}</div></div>')
+        anim.append(f'  tl.fromTo("#img{i} .ov-in", {{scale: 0, rotation: {rot - 8}, opacity: 0}}, '
+                    f'{{scale: 1, rotation: {rot}, opacity: 1, duration: 0.35, ease: "back.out(2.2)"}}, {a});')
+        anim.append(f'  tl.to("#img{i} .ov-in", {{y: -12, duration: {round(max(b - a - 0.6, 0.1), 3)}, '
+                    f'ease: "sine.inOut"}}, {round(a + 0.35, 3)});')
+        anim.append(f'  tl.to("#img{i} .ov-in", {{scale: 0.6, opacity: 0, duration: 0.2, '
+                    f'ease: "power2.in"}}, {round(b - 0.2, 3)});')
+
+    for i, x in enumerate(ef.get("textos", [])):
+        a, b = para_timeline(x["inicio"], segs), para_timeline(x["fim"], segs)
+        if a is None:
+            continue
+        b = min(total, b if b is not None else total)
+        rot = x.get("rotacao", -3)
+        elems.append(
+            f'      <div id="tx{i}" class="clip ov" data-start="{a}" data-duration="{round(b - a, 3)}" '
+            f'data-track-index="2" style="top: {round(x.get("y", 0.16) * H)}px">'
+            f'<p class="tx-in" style="font-size: {min(64, int(1500 / max(len(x["texto"]), 1)))}px; '
+            f'background: {x.get("fundo", "#FF007E")}; '
+            f'color: {x.get("cor", "#FFFFFF")}">{html.escape(x["texto"])}</p></div>')
+        anim.append(f'  tl.fromTo("#tx{i} .tx-in", {{scale: 0.3, rotation: {rot - 10}, opacity: 0}}, '
+                    f'{{scale: 1, rotation: {rot}, opacity: 1, duration: 0.25, ease: "back.out(2.5)"}}, {a});')
+        anim.append(f'  tl.to("#tx{i} .tx-in", {{scale: 0.7, opacity: 0, duration: 0.15, '
+                    f'ease: "power2.in"}}, {round(b - 0.15, 3)});')
+
+    tit = projeto.get("titulo")
+    if tit and tit.get("texto"):   # manchete fixa no topo; *palavra* fica destacada
+        partes = html.escape(tit["texto"]).split("*")
+        texto = "".join(f'<span style="color: {tit.get("destaque", "#E53935")}">{p}</span>'
+                        if k % 2 else p for k, p in enumerate(partes))
+        elems.append(
+            f'      <div id="titulo" class="clip ov" data-start="0" data-duration="{round(total, 3)}" '
+            f'data-track-index="2" style="top: {round(tit.get("y", 0.11) * H)}px; z-index: 7">'
+            f'<p class="tit-in" style="background: {tit.get("fundo", "#FFFFFF")}; '
+            f'color: {tit.get("cor", "#111111")}; font-size: {tit.get("fonte_px", 66)}px">{texto}</p></div>')
+        anim.append('  tl.fromTo("#titulo .tit-in", {scale: 0.4, opacity: 0}, '
+                    '{scale: 1, opacity: 1, duration: 0.3, ease: "back.out(2)"}, 0);')
+    return elems, anim
+
+
 # ------------------------------------------------------- 3. index.html
 
-def compor_html(projeto, segs, grupos, total):
+def compor_html(projeto, segs, grupos, total, efeitos=([], [])):
     L = projeto["legenda"]
+    chaves = {normaliza(p) for p in L.get("palavras_chave", [])}
+    cor_chave = L.get("cor_chave", "#FF2E93")
     clips, t = [], 0.0
     for i, (a, z, tipo) in enumerate(segs):
         d = round(z - a, 3)
@@ -263,9 +391,14 @@ def compor_html(projeto, segs, grupos, total):
                     f'{{scale: 1, opacity: 1, duration: 0.12, ease: "back.out(2)"}}, {g["ini"]});')
         for wi, w in enumerate(g["palavras"]):
             ini = max(round(w["ini"], 3), g["ini"])
-            anim.append(f'  tl.set("#g{gi}w{wi}", {{color: DESTAQUE, scale: 1.1}}, {ini});')
-            anim.append(f'  tl.set("#g{gi}w{wi}", {{color: COR, scale: 1}}, '
+            chave = normaliza(w["texto"]) in chaves
+            if chave:   # palavra-chave: cor própria o tempo todo e cresce mais
+                anim.append(f'  tl.set("#g{gi}w{wi}", {{color: CHAVE}}, {g["ini"]});')
+            anim.append(f'  tl.set("#g{gi}w{wi}", {{color: {"CHAVE" if chave else "DESTAQUE"}, '
+                        f'scale: {1.15 if chave else 1.1}}}, {ini});')
+            anim.append(f'  tl.set("#g{gi}w{wi}", {{color: {"CHAVE" if chave else "COR"}, scale: 1}}, '
                         f'{round(min(w["fim"], g["fim"]), 3)});')
+    anim += efeitos[1]
 
     centro = round(L["posicao_y"] * H)
     return f"""<!doctype html>
@@ -296,7 +429,19 @@ def compor_html(projeto, segs, grupos, total):
                -webkit-text-stroke: {max(4, L["fonte_px"] // 12)}px {L["contorno"]};
                paint-order: stroke fill;
                text-shadow: 0 6px 18px rgba(0, 0, 0, 0.55); }}
-    .w {{ display: inline-block; }}
+    .w {{ display: inline-block; margin: 0 0.1em; }}   /* folga para a palavra crescer */
+    .ov {{ position: absolute; left: 0; right: 0; height: auto; display: flex;
+           justify-content: center; z-index: 6; }}
+    .ov-in {{ padding: 34px 48px; border-radius: 40px; line-height: 0;
+              box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5); }}
+    .tx-in {{ font-family: "Legenda", sans-serif; font-weight: 900; white-space: nowrap;
+              text-transform: uppercase; padding: 16px 34px; border-radius: 22px;
+              box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45); }}
+    .tit-in {{ font-family: "Legenda", sans-serif; font-weight: 900; text-transform: uppercase;
+               text-align: center; line-height: 1.1; max-width: {W - 140}px; padding: 18px 30px;
+               border-radius: 18px; box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45); }}
+    .cred {{ font-family: "Legenda", sans-serif; font-size: 22px; line-height: 1.3;
+             color: rgba(0, 0, 0, 0.6); text-align: center; margin-top: 10px; }}
   </style>
 </head>
 <body>
@@ -304,9 +449,11 @@ def compor_html(projeto, segs, grupos, total):
        data-duration="{round(total, 3)}" data-width="{W}" data-height="{H}">
 {chr(10).join(clips)}
 {chr(10).join(legs)}
+{chr(10).join(efeitos[0])}
   </div>
   <script>
-  const COR = {json.dumps(L["cor"])}, DESTAQUE = {json.dumps(L["destaque"])};
+  const COR = {json.dumps(L["cor"])}, DESTAQUE = {json.dumps(L["destaque"])},
+        CHAVE = {json.dumps(cor_chave)};
   const tl = gsap.timeline({{ paused: true }});
 {chr(10).join(anim)}
   window.__timelines["main"] = tl;
@@ -329,12 +476,12 @@ def preparar_projeto_hf(pasta_hf):
                  assets / "fontes" / "Montserrat.ttf")
 
 
-def render_final(pasta_hf, mp4, total):
+def render_final(pasta_hf, mp4, total, workers="auto"):
     print("→ Renderizando no HyperFrames (Chrome headless + FFmpeg, CPU)...", flush=True)
     bruto = pasta_hf / "renders" / "bruto.mp4"
     bruto.parent.mkdir(exist_ok=True)
     r = npx(["render", "--output", str(bruto), "--fps", str(FPS), "--quality", "looks",
-             "--no-browser-gpu"], cwd=pasta_hf)
+             "--no-browser-gpu", "--workers", str(workers)], cwd=pasta_hf)
     if r.returncode != 0 or not bruto.exists():
         sys.exit("Erro: o render do HyperFrames falhou (veja a saída acima; "
                  "`npx hyperframes doctor` ajuda a diagnosticar).")
@@ -370,6 +517,8 @@ def main():
     p.add_argument("--porta", type=int, default=3002)
     p.add_argument("--renderizar", nargs="?", const="", default=None, metavar="MP4",
                    help="renderiza o MP4 final (padrão reels_final.mp4 na pasta do vídeo)")
+    p.add_argument("--workers", default="auto",
+                   help="processos Chrome em paralelo no render (~256 MB cada; 2 se faltar memória)")
     args = p.parse_args()
 
     projeto, cam, _ = load_projeto(args.projeto)
@@ -385,10 +534,15 @@ def main():
     total = round(sum(z - a for a, z, _ in segs), 3)
     grupos = grupos_legenda(palavras_na_timeline(projeto, segs),
                             projeto["legenda"]["palavras_max"], total)
-    (pasta_hf / "index.html").write_text(compor_html(projeto, segs, grupos, total),
+    efeitos = compor_efeitos(projeto, segs, total, pasta_hf)
+    (pasta_hf / "index.html").write_text(compor_html(projeto, segs, grupos, total, efeitos),
                                          encoding="utf-8")
+    ef = projeto.get("efeitos") or {}
     print(f"→ Composição: {len(segs)} trechos, {len(grupos)} legendas, "
           f"{fmt_tc(total)} ({pasta_hf / 'index.html'})")
+    if ef:
+        print(f"  efeitos: {len(ef.get('zooms', []))} zooms, {len(ef.get('sons', []))} sons, "
+              f"{len(ef.get('imagens', []))} imagens, {len(ef.get('textos', []))} textos")
     if total > 90:
         print(f"  ⚠ {total:.0f}s passa de 90s: talvez valha cortar mais para o Reels")
 
@@ -410,7 +564,7 @@ def main():
               "para encerrar: npx hyperframes preview --stop)")
     if args.renderizar is not None:
         mp4 = Path(args.renderizar or pasta_video / "reels_final.mp4").resolve()
-        render_final(pasta_hf, mp4, total)
+        render_final(pasta_hf, mp4, total, args.workers)
 
 
 if __name__ == "__main__":

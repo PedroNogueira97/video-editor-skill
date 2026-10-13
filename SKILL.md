@@ -171,6 +171,31 @@ S=~/.claude/skills/editar-video/scripts
    - Legenda: `legenda.fonte_px` (84), `palavras_max` (3), `cor`, `destaque`
      (#FFD400), `contorno`, `posicao_y` (0.62 da altura), `caixa_alta`.
    - Enquadramento: `enquadramento.seguir_rosto` (false = centro fixo).
+   - **Edição dinâmica (estilo yap)** — quando ele pedir zooms, sons, logo ou
+     "edição que prende": monte `"efeitos"` no projeto.json, com tempos do vídeo
+     **original** (palavras do JSON de cache), batendo nas palavras fortes:
+     ```
+     "efeitos": {
+       "zooms":   [{"inicio": 7.54, "fim": 9.0, "escala": 1.35, "estilo": "impacto"}],
+       "sons":    [{"t": 7.54, "som": "impact-bass-1", "volume": 0.45}],
+       "imagens": [{"inicio": 11.4, "fim": 16, "arquivo": "/mnt/e/.../logo.svg", "largura": 720, "y": 0.11}],
+       "textos":  [{"inicio": 52.2, "fim": 53.3, "texto": "1. se cadastra", "y": 0.13, "fundo": "#FF007E"}]
+     }
+     ```
+     Zoom: `punch` (salto seco), `suave` (aproxima ao longo do trecho, `de`
+     opcional), `impacto` (salto + tremida); volta a 1.0 no `fim`; `foco_y`
+     (0.35) é a altura do rosto. Um zoom a cada 2–4s, alternando 1.0 e 1.1–1.35;
+     não empilhe em cima de zoom que já está gravado no vídeo. Sons em
+     `templates/sfx/` (Pixabay, uso comercial liberado — ver `manifest.json`):
+     whoosh/whoosh-short nas viradas e B-rolls, pop em listas e textos,
+     impact-bass em punchlines, notification/ping/sparkle/click/error/glitch
+     conforme o sentido; volume 0.25–0.5 (abaixo da voz). Ou `"arquivo"` próprio.
+     Legenda: `legenda.palavras_chave` (lista) ficam em `cor_chave` (#FF2E93) e
+     crescem mais. Manchete fixa no topo (o assunto/gancho do vídeo inteiro):
+     `"titulo": {"texto": "Programador pode ser de *esquerda?*", "y": 0.11}` —
+     `*palavra*` sai em `destaque` (#E53935). Imagens aceitam `rotacao`, `raio` e
+     `credito` (obrigatório para foto CC BY/BY-SA, ex.: Wikimedia Commons). Logos de marca: procure o SVG oficial no site da marca e
+     confirme com o usuário; não ponha logo de marca que não é a da publi.
    - Ritmo: refaça com `cortes.py reels ... --silencio-min 0.25 --sobrescrever`
      (perde edições; avise antes).
 
@@ -179,6 +204,12 @@ S=~/.claude/skills/editar-video/scripts
    uv run $S/reels_compor.py projeto.json --renderizar
    ```
    Gera `reels_final.mp4` (H.264 + AAC, 30fps, 1080x1920) na pasta do vídeo.
+   Nesta CPU leva ~1,7 min por segundo de vídeo. **Renderize do disco do WSL**:
+   lendo o `base.mp4` de /mnt/e o Chrome trava; copie a pasta (`rsync -a
+   reels_<video>/ ~/hf/reels_<video>/`) e use `--pasta ~/hf/reels_<video>`. Feche
+   previews antigos (`npx hyperframes preview --stop`) antes.
+   Celular grava vertical com flag de rotação: o ffprobe mostra 1920x1080, mas o
+   `cortes.py` já lê a rotação — confira em `camera.largura/altura` do projeto.
 
 ## Flags
 
