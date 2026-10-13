@@ -179,6 +179,10 @@ inicio,fim,motivo
 
 ```
 SKILL.md                  instruções que o Claude segue (fluxo, aprovações, problemas comuns)
+SPECS.md                  especificação técnica (arquitetura, schema do projeto.json, scripts)
+CLAUDE.md                 guia para desenvolver o repositório com o Claude Code
+.claude/archive/          histórico de decisões técnicas
+.claude/skills/           symlink da skill, para usá-la com o Claude Code aberto nesta pasta
 scripts/
   transcrever.py          ElevenLabs Scribe → JSON com tempo por palavra + transcricao.txt
   cortes.py               transcrição → silêncios, takes, sincronia da tela → projeto.json
