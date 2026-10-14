@@ -1,0 +1,102 @@
+{
+  "global": {
+    "canal": {
+      "nome": "Nome do Canal",
+      "handle_instagram": "@seu_instagram",
+      "handle_youtube": "@seu_youtube"
+    },
+    "tom_de_voz": "Descreva em poucas frases como você fala: tom, posicionamento, o que evitar e com quem muda o tom.",
+    "identidade": {
+      "cor_primaria": "#FFFFFF",
+      "cor_secundaria": "#000000",
+      "cor_marca": "#FF5500"
+    },
+    "tipografia_base": {
+      "fonte": "NomeDaFonte",
+      "altura_linha": 1.1,
+      "contorno": { "cor": "#000000", "espessura_px": 1 }
+    },
+    "assets": {
+      "fontes_dir": "assets/fontes",
+      "memes_dir": "assets/memes",
+      "logos_dir": "assets/logos",
+      "broll_dir": "assets/broll",
+      "logos": {
+        "ferramenta_a": "assets/logos/ferramenta_a.png",
+        "ferramenta_b": "assets/logos/ferramenta_b.png"
+      }
+    },
+    "n8n": {
+      "webhook_url": "https://n8n.exemplo.com/webhook/editar-video",
+      "token_env_var": "N8N_WEBHOOK_TOKEN"
+    }
+  },
+
+  "youtube": {
+    "thumbnail": {
+      "largura": 1280,
+      "altura": 720,
+      "referencia_thumb": "assets/referencia/thumb_youtube.jpg",
+      "fonte": "descrição da fonte, ex.: sem serifa, condensada e bem grossa",
+      "peso": "900",
+      "cor_texto": "#FFFFFF",
+      "cor_destaque": "#FF5500",
+      "contorno": { "cor": "#000000", "espessura_px": 8 },
+      "sombra": { "cor": "#000000", "blur_px": 0, "offset_px": [0, 6] },
+      "posicao_texto": "topo",
+      "max_palavras": 4,
+      "composicao": "montagem_tela_cheia",
+      "instrucoes_extra": "Instruções livres de composição para quem gera a thumbnail: onde fica o rosto, o que ocupa o outro lado, onde vai o texto e o que evitar."
+    },
+    "copy": {
+      "max_caracteres_titulo": 70,
+      "exemplos_titulos": ["Exemplo de título 1", "Exemplo de título 2"],
+      "exemplos_texto_thumb": ["TEXTO CURTO DE THUMB"],
+      "descricao_rodape": "📰 Newsletter: https://exemplo.com\n📸 Instagram: https://instagram.com/seu_instagram",
+      "gerar_capitulos": true,
+      "hashtags_fixas": ["#exemplo"]
+    },
+    "frames": { "quantidade_enviada": 6, "candidatos_analisados": 40 }
+  },
+
+  "reels": {
+    "capa": {
+      "largura": 1080,
+      "altura": 1920,
+      "referencia_thumb": "assets/referencia/capa_reels.jpg",
+      "fonte": "descrição da fonte, ex.: sem serifa bem grossa",
+      "peso": "800",
+      "estilo_texto": "tarja",
+      "tarjas": [
+        { "cor_tarja": "#000000", "cor_texto": "#FFFFFF" },
+        { "cor_tarja": "#FF5500", "cor_texto": "#000000" }
+      ],
+      "posicao_texto": "centro",
+      "max_palavras": 8,
+      "max_linhas": 2,
+      "zona_segura": {
+        "topo_px": 300,
+        "base_px": 420,
+        "laterais_px": 60,
+        "grid_perfil_3x4": { "topo_px": 240, "base_px": 240 }
+      },
+      "instrucoes_extra": "Instruções livres de composição da capa: quantas linhas, cores das tarjas, margens e elementos permitidos."
+    },
+    "legenda": {
+      "fonte": "NomeDaFonte",
+      "altura_linha": 1.1,
+      "cor": "#FFFFFF",
+      "contorno": { "cor": "#000000", "espessura_px": 1 },
+      "fundo": "nenhum",
+      "posicao": "centro"
+    },
+    "copy": {
+      "max_caracteres_legenda": 2200,
+      "exemplos_legendas": ["Exemplo de legenda de post."],
+      "exemplos_texto_thumb": ["TEXTO CURTO DE CAPA"],
+      "cta": "Chamada para ação no fim da legenda.",
+      "hashtags_fixas": ["#exemplo"]
+    },
+    "frames": { "quantidade_enviada": 6, "candidatos_analisados": 40 }
+  }
+}

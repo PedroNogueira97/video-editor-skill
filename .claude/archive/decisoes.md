@@ -127,3 +127,31 @@ Formato: **Contexto** (o problema) · **Decisão** · **Por quê** · **Consequ�
 **Decisão.** O `teste_sintetico.sh` gera vídeos com ffmpeg e põe um SDK falso da ElevenLabs no `PYTHONPATH`, com contador de chamadas para provar o cache. A pasta padrão fica em `/mnt/c/Users/Public/teste editar video`.
 
 **Por quê.** Testar de ponta a ponta sem custo, e pegar os erros de caminho do Windows (espaços, `/mnt`) que aparecem nos vídeos reais.
+
+## D16 — Falsos começos `--` saem só da transcrição (2026-10-14)
+
+**Contexto.** A ElevenLabs marca palavras abandonadas com `--` ("ti--"). O texto mandado ao n8n não deve ter gagueira.
+
+**Decisão.** O `transcricao_limpa.py` remove o falso começo do texto: repetição das próximas 3–5 palavras numa janela de 20 s ou, se não houver, recuo até a pausa > 0,5 s, com limite de 6 palavras / 3 s (senão, remove só a palavra e marca `incerto`). Isso **nunca** altera o `projeto.json`. Retake que ainda está no vídeo vira sugestão de take, com aprovação (D05).
+
+**Consequências.** O texto limpo sempre passa pelos cortes da timeline: ela também tira retakes sem `--`, que a regra não pega.
+
+## D17 — Frames de capa com YuNet + Haar, OpenCV < 5 (2026-10-14)
+
+**Decisão.** A nota de cada frame soma rosto grande (YuNet, 0,45), olhos abertos (Haar `haarcascade_eye`, 0,25) e nitidez (variância do Laplaciano, 0,30), com distância mínima entre os escolhidos. Os frames vêm só de trechos com a câmera em tela cheia, e são extraídos do arquivo original, sem legenda.
+
+**Por quê.** O MediaPipe não roda nesta CPU (D11). O `CascadeClassifier` saiu do OpenCV 5.0, por isso o `enviar_n8n.py` fixa `opencv-python-headless<5`.
+
+**Consequências.** O Haar não percebe mão na frente do rosto nem olho meio fechado: frames assim podem ganhar nota alta.
+
+## D18 — Multipart com campos nomeados e só o que foi usado (2026-10-14)
+
+**Decisão.** O envio ao n8n tem os campos `payload` (JSON), `frame_NN`, `referencia_thumb` e `asset_NN`, cada arquivo no seu campo. Vão os assets usados **nesta** edição: imagens inseridas, fonte do render, ícones do card e logos do `context.json` citados na fala. Sons vão só pelo nome. As pastas de assets servem para classificar (meme, logo, B-roll) e nunca são enviadas inteiras.
+
+**Por quê.** Campos distintos viram propriedades binárias sem ambiguidade no Webhook node, e o n8n não enxerga o disco do WSL.
+
+## D19 — `context.json` na raiz da skill, só para o n8n por enquanto (2026-10-14)
+
+**Decisão.** Um arquivo por canal, fora do git, validado ao carregar. Asset ausente gera aviso, não erro. Contexto específico de um vídeo vem do pedido do usuário via `--nota`.
+
+**Pendente (spec 002).** O usuário decidiu que o render deve passar a seguir o contexto: legenda do Reels em Typewriter/branca/sem destaque, cor de marca `#5BC8F5` no lugar do amarelo `#FFD400`. Até lá, o render continua lendo só o `projeto.json`.

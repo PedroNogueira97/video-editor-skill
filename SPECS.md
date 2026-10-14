@@ -226,6 +226,20 @@ Os cabeçalhos são `Accept-Ranges: bytes` e `Cache-Control: no-store`.
 7. **Preview** (`--preview`): Studio em `localhost:<porta>`, padrão 3002.
 8. **Render** (`--renderizar`): `npx hyperframes render --fps 30 --quality looks --no-browser-gpu --workers <n>` → `renders/bruto.mp4` → remux com AAC de 192 kbps, 48 kHz e `+faststart`. Se o vídeo não sair em H.264/yuv420p, é recodificado com libx264 CRF 18. O resultado é `reels_final.mp4`.
 
+### 5.6 `enviar_n8n.py` (+ `contexto.py`, `transcricao_limpa.py`, `frames.py`)
+
+Detalhes, decisões e contrato completo em [specs/001-contexto-e-envio-n8n.md](specs/001-contexto-e-envio-n8n.md). Resumo:
+
+1. **`context.json`** (raiz da skill, fora do git): blocos `global`, `youtube` e `reels`, validados por `contexto.py`.
+   - **Erro:** obrigatórios, tipos, hex, enumerações.
+   - **Aviso:** caminhos de asset ausentes.
+
+   O payload leva `global` sem o bloco `n8n` + só o bloco do modo, com caminhos reduzidos ao nome do arquivo.
+2. **Transcrição limpa:** palavras sem `spacing`/`logprob` → remoção dos falsos começos `--` (repetição em 20 s ou recuo até a pausa > 0,5 s, limitado a 6 palavras / 3 s) → frases (pontuação ou pausa > 1 s, no tempo original) → remapeamento pelos segmentos do render (gancho + blocos ativos; uma palavra fica se o ponto médio cai num trecho mantido). Cada retake leva `na_edicao`, que diz se a timeline já o corta.
+3. **Frames:** candidatos espalhados pela duração editada das janelas só de câmera (youtube: `tela: false`; reels: menos `efeitos.imagens`), extraídos do original. A nota soma rosto YuNet, olhos Haar e nitidez Laplaciana. Os escolhidos têm distância mínima entre si e saem em JPG com lado maior ≤ 1280 px.
+4. **Multipart:** `payload`, `frame_NN`, `referencia_thumb` e `asset_NN` (assets usados na edição + logos citados na fala), com `Authorization: Bearer` lido da env var. `--dry-run` não envia.
+5. **Resposta síncrona:** JSON com `titulo`, `descricao`/`legenda`, `hashtags`, `capitulos` e `capa` {`base64`|`url`}. Gera `resposta.json`, `capa.*` e `copy.md` em `n8n_<projeto>/`.
+
 ## 6. Recursos empacotados
 
 | Caminho | Uso | Licença |

@@ -54,6 +54,9 @@ S=~/.claude/skills/editar-video/scripts
    | 1 | 00:03:10.200 → 00:03:18.950 | "então o primeiro… vou falar de novo" | "Então o primeiro passo é…" |
 
    Conteúdo polêmico ou digressões não são takes: liste à parte, como sugestão.
+   Para ajudar, `uv run $S/enviar_n8n.py --listar-retakes projeto.json` lista os
+   falsos começos marcados com `--` pela API (só depois que o projeto existe; antes,
+   procure `--` no `transcricao.txt`). Eles entram na tabela como qualquer take.
    Depois do "ok", grave `takes.csv` na pasta do vídeo (`inicio,fim,motivo`).
 
 4. **Gerar o projeto.json** (fonte única da verdade: blocos de fala, takes
@@ -211,6 +214,28 @@ S=~/.claude/skills/editar-video/scripts
    Celular grava vertical com flag de rotação: o ffprobe mostra 1920x1080, mas o
    `cortes.py` já lê a rotação — confira em `camera.largura/altura` do projeto.
 
+## Título, descrição e capa (n8n, os dois modos)
+
+Depois do render aprovado, pergunte se ele quer gerar título/descrição (youtube)
+ou legenda (reels) e a capa, e se há **frases de destaque**. Se ele der contexto
+específico do vídeo no pedido ("é publi da X", "cita o cupom Y"), passe com `--nota`.
+
+```
+uv run $S/enviar_n8n.py projeto.json --dry-run      # primeira vez: confira a pasta gerada
+uv run $S/enviar_n8n.py projeto.json --frase "..." --nota "..."
+```
+
+- Precisa do `context.json` na raiz da skill (se faltar, o script manda copiar o
+  `context.example.json`) e do token na variável indicada em
+  `global.n8n.token_env_var` (ambiente ou `.env`). Nunca imprima nem peça o token
+  no chat.
+- O texto enviado é a transcrição do vídeo **editado**, sem falsos começos `--`.
+  Se o script avisar "⚠ AINDA NO VÍDEO", ofereça cortar esses trechos como takes
+  (`cortes.py --aplicar-takes`, com aprovação) antes de renderizar de novo.
+- A resposta é síncrona: mostre o título/legenda do `copy.md` e o caminho Windows
+  da capa (`n8n_<projeto>/capa.*`); pergunte se quer gerar de novo com outras
+  frases ou notas.
+
 ## Flags
 
 **cortes.py** `modo camera [tela]`: `--takes CSV`, `--aplicar-takes CSV --projeto
@@ -226,6 +251,9 @@ P`, `--saida`, `--sobrescrever`, `--silencio-min` (0.7 youtube / 0.35 reels),
 [MP4]`, `--pasta`.
 
 **transcrever.py** `camera [--txt caminho] [--refazer]`.
+
+**enviar_n8n.py** `projeto.json`: `--dry-run`, `--frase` (repetível), `--nota`
+(repetível), `--listar-retakes`, `--contexto`.
 
 ## Problemas comuns
 

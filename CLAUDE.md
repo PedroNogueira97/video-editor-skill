@@ -21,6 +21,8 @@ Este repositório **é** a skill `editar-video`. No WSL, `~/.claude/skills/edita
 uv run scripts/<script>.py --help          # cada script instala as próprias dependências
 bash tests/teste_sintetico.sh              # ponta a ponta dos dois modos (ElevenLabs mockada); demora
 uv run --script tests/teste_enquadramento.py /tmp/teste-enq
+uv run --script tests/teste_n8n.py         # context.json, transcrição limpa, dry-run e envio
+uv run scripts/contexto.py                 # valida o context.json
 ```
 
 Rode o `teste_sintetico.sh` depois de mexer em `cortes.py`, `youtube_timeline.py`, `reels_compor.py` ou `templates/timeline.html`.
@@ -33,7 +35,9 @@ Rode o `teste_sintetico.sh` depois de mexer em `cortes.py`, `youtube_timeline.py
 - O **`projeto.json` é a fonte única da verdade**. Recurso novo vira campo no projeto (com padrão no `cortes.py` quando fizer sentido), nunca estado escondido em arquivo gerado. Tempos no **tempo original da câmera**; os borrões são a exceção (tempo da tela).
 - `timeline.html` (na pasta do vídeo), `index.html` do HyperFrames, `base.mp4` e o card são **gerados**. Corrija o gerador, não a saída.
 - Nunca destrua edições do usuário: mantenha o `.bak` antes de sobrescrever e o `mesclar()` do Salvar só altera blocos e `ativo` dos borrões.
-- Nunca imprima nem logue a `ELEVENLABS_API_KEY`. O `.env` está no `.gitignore`.
+- Nunca imprima nem logue a `ELEVENLABS_API_KEY` nem o token do n8n. O `.env` está no `.gitignore`.
+- `context.json` (identidade do canal) e `assets/` (referências, logos, memes) **nunca** vão para o git; só o `context.example.json`, com valores genéricos. Transcrições e projetos de vídeos reais também não, nem como fixture: os testes usam dados sintéticos (o repo é público).
+- Funcionalidade nova começa por uma spec em `specs/` (decisões + dúvidas) e espera aprovação antes do código.
 
 ## Ao mudar uma flag ou um campo do projeto
 

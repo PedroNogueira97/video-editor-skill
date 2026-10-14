@@ -1,6 +1,6 @@
 # editar-video
 
-Skill do [Claude Code](https://claude.com/claude-code) que faz o **primeiro corte automático** de vídeos gravados em casa. Ela transcreve, tira silêncios e takes repetidos, monta a edição e renderiza o MP4 final. Você aprova tudo no navegador e não precisa abrir um editor de vídeo.
+Skill do [Claude Code](https://claude.com/claude-code) que faz o **primeiro corte automático** de vídeos gravados em casa. Ela transcreve, tira silêncios e takes repetidos, monta a edição e renderiza o MP4 final. No fim, manda o vídeo editado para um fluxo do n8n, que gera título, descrição ou legenda e a capa. Você aprova tudo no navegador e não precisa abrir um editor de vídeo.
 
 São dois modos:
 
@@ -16,23 +16,34 @@ São dois modos:
  camera.mp4 ───▶ │ transcrever.py   │──▶ <video>.transcricao.json (cache) + transcricao.txt
                  └──────────────────┘
                           │   o Claude lê a transcrição, acha os takes repetidos
+                          │   (inclusive os falsos começos "--" da API)
                           ▼   e grava takes.csv depois que você aprova
                  ┌──────────────────┐
  tela.mov ─────▶ │ cortes.py        │──▶ projeto.json   (fonte única da verdade)
                  └──────────────────┘
                      │                         │
           youtube    ▼                         ▼    reels
- ┌─────────────────────────┐        ┌─────────────────────────┐
- │ sigilo.py  (opcional)   │        │ reels_compor.py         │
+ ┌─────────────────────────┐        ┌──────────────────────────┐
+ │ sigilo.py  (opcional)   │        │ reels_compor.py          │
  │ youtube_timeline.py     │        │  --preview / --renderizar│
- │  --servir / --renderizar│        └─────────────────────────┘
+ │  --servir / --renderizar│        └──────────────────────────┘
  └─────────────────────────┘                   │
               │                                ▼
               ▼                         reels_final.mp4
-       video_final.mp4
+       video_final.mp4                         │
+              └──────────────┬─────────────────┘
+                             ▼   depois do render aprovado
+                 ┌──────────────────────┐
+ context.json ─▶ │ enviar_n8n.py        │──▶ n8n_<projeto>/: payload, frames, assets
+                 └──────────────────────┘
+                             │  multipart → webhook do n8n (resposta síncrona)
+                             ▼
+                 título · descrição/legenda · hashtags · capa  (copy.md + capa.*)
 ```
 
 Toda a edição fica no `projeto.json`: blocos de fala, takes removidos, trechos de tela, offset de sincronia, borrões, gancho, legenda e efeitos. A timeline, a composição do Reels e os dois renders leem desse arquivo. Todos os tempos estão no **tempo original da câmera**.
+
+O `context.json` guarda a identidade do canal (tom de voz, cores, tipografia, regras de thumbnail, capa e copy) e só é usado pelo `enviar_n8n.py`.
 
 ## Requisitos
 
@@ -52,6 +63,7 @@ Toda a edição fica no `projeto.json`: blocos de fala, takes removidos, trechos
 | `youtube_timeline.py` | `numpy`, `elevenlabs`, `opentimelineio` |
 | `sigilo.py` | `numpy`, `elevenlabs`, `rapidocr`, `onnxruntime`, `opencv-python-headless` |
 | `reels_compor.py` | `numpy`, `elevenlabs`, `opencv-python-headless` |
+| `enviar_n8n.py` | `numpy`, `elevenlabs`, `opencv-python-headless<5` (o detector de olhos saiu do OpenCV 5), `requests` |
 
 Python ≥ 3.9.
 
@@ -63,7 +75,15 @@ Clone o repositório e crie um link para ele na pasta de skills do Claude Code:
 git clone git@github.com:PedroNogueira97/video-editor-skill.git
 ln -s "$PWD/video-editor-skill" ~/.claude/skills/editar-video
 echo 'ELEVENLABS_API_KEY=...' > ~/.claude/skills/editar-video/.env
+
+# para a etapa do n8n (título, descrição e capa)
+cd ~/.claude/skills/editar-video
+cp context.example.json context.json     # preencha com a identidade do seu canal
+echo 'N8N_WEBHOOK_TOKEN=...' >> .env
+uv run scripts/contexto.py               # valida o context.json
 ```
+
+Os assets do canal (referências de thumbnail e capa, logos, memes, B-roll e fontes) ficam em `assets/`, que está fora do git.
 
 O nome da skill vem do `name:` do [SKILL.md](SKILL.md) (`editar-video`).
 
@@ -79,9 +99,10 @@ No Claude Code:
 Se você não disser o modo, o Claude pergunta. Caminhos do Windows são convertidos com `wslpath`. O Claude conduz o fluxo e para nos pontos de aprovação:
 
 1. **Transcreve** a câmera, que é o arquivo com áudio. A API é paga só uma vez: depois o cache `<video>.transcricao.json` é reaproveitado.
-2. **Lista os takes repetidos** ("vou falar de novo", frases recomeçadas, comentários de bastidor) numa tabela com timecode, e mantém sempre o último take. Ele **espera seu ok** antes de gravar o `takes.csv`.
+2. **Lista os takes repetidos** numa tabela com timecode, e mantém sempre o último take. Isso inclui "vou falar de novo", frases recomeçadas, comentários de bastidor e os falsos começos que a API marca com `--` ("ti--"). Ele **espera seu ok** antes de gravar o `takes.csv`.
 3. **Gera o `projeto.json`** com os silêncios e os takes cortados.
-4. Depois, depende do modo:
+4. **Revisão e render**, que dependem do modo (veja abaixo).
+5. **Título, descrição/legenda e capa.** Depois do render aprovado, o Claude pergunta se você quer gerar a copy e a capa, e se há frases de destaque. Também repassa o contexto específico que você der no pedido ("é publi da X"). Ele roda o `enviar_n8n.py`: um `--dry-run` na primeira vez, para você conferir, e depois o envio. Por fim, mostra o título ou a legenda e o caminho da capa. Detalhes em [Título, descrição e capa (n8n)](#título-descrição-e-capa-n8n).
 
 ### Modo `youtube`
 
@@ -113,6 +134,114 @@ Se você não disser o modo, o Claude pergunta. Caminhos do Windows são convert
 
   Os estilos de zoom são `punch` (salto seco), `suave` (aproxima ao longo do trecho) e `impacto` (salto + tremida). Os sons ficam em [templates/sfx/](templates/sfx/), com metadados no `manifest.json`.
 - **Render**: H.264 + AAC, 30 fps, 1080x1920. Leva ~1,7 min por segundo de vídeo numa CPU antiga (i3-2100). Renderize a partir do disco do WSL, não de `/mnt/*`.
+
+## Título, descrição e capa (n8n)
+
+Depois da edição aprovada, o `enviar_n8n.py` manda o vídeo editado para um webhook do n8n, que devolve na mesma resposta o título, a descrição (YouTube) ou a legenda (Reels), as hashtags e a capa/thumbnail.
+
+O envio leva:
+- o texto limpo do vídeo editado: sem ruído da API, sem falsos começos marcados com `--` e sem o que foi cortado na timeline;
+- as frases com tempo editado e tempo original;
+- os melhores frames de rosto da câmera;
+- a imagem de referência da capa;
+- os assets usados na edição;
+- o contexto do canal.
+
+### 1. Criar o `context.json`
+
+```bash
+cp context.example.json context.json      # na raiz da skill
+uv run scripts/contexto.py                # valida e mostra erros e avisos
+```
+
+O `context.json` e a pasta `assets/` ficam fora do git (`.gitignore`). Só o `context.example.json` é versionado.
+
+Se o arquivo não existir, o `enviar_n8n.py` para e manda copiar o exemplo. Os modos `youtube` e `reels` funcionam sem ele.
+
+A validação lista todos os problemas de uma vez, com o caminho do campo:
+- **Erro:** campo obrigatório ausente, tipo errado, cor fora de `#RRGGBB`/`#RRGGBBAA`, posição ou peso inválidos.
+- **Aviso:** caminho de asset (pasta, logo, referência da thumb, fonte) que não existe no disco. A skill segue sem ele.
+
+Caminhos relativos resolvem a partir da raiz da skill.
+
+### 2. Token do webhook
+
+O token **não** fica no `context.json`. Lá vai só o nome da variável (`global.n8n.token_env_var`, padrão `N8N_WEBHOOK_TOKEN`). Defina o valor no ambiente ou no `.env` da skill:
+
+```bash
+echo 'N8N_WEBHOOK_TOKEN=...' >> ~/.claude/skills/editar-video/.env
+```
+
+Ele é enviado como `Authorization: Bearer <token>` e nunca é impresso nem gravado.
+
+### 3. Rodar
+
+```bash
+uv run $S/enviar_n8n.py projeto.json --dry-run          # gera tudo localmente, sem enviar
+uv run $S/enviar_n8n.py projeto.json                    # envia e salva a resposta
+uv run $S/enviar_n8n.py projeto.json --frase "frase forte do vídeo" --nota "é publi da marca X"
+uv run $S/enviar_n8n.py projeto.json --listar-retakes   # só lista os falsos começos "--"
+```
+
+| Flag | Efeito |
+|---|---|
+| `--dry-run` | grava payload, frames e assets em `n8n_<projeto>/` e não envia; não exige URL nem token |
+| `--frase "..."` | frase de destaque (repetível); sem ela, o n8n decide |
+| `--nota "..."` | contexto específico deste vídeo, vindo do seu pedido (repetível) |
+| `--listar-retakes` | lista os falsos começos `--` e diz se a timeline já os corta |
+| `--contexto ARQ` | usa outro `context.json` |
+
+A saída fica ao lado do vídeo, em `n8n_<projeto>/`:
+
+| Arquivo | Conteúdo |
+|---|---|
+| `payload.json` | o JSON enviado no campo `payload`; sempre gravado, inclusive no `--dry-run` |
+| `frames/` | os frames escolhidos |
+| `assets/` | os assets usados na edição |
+| referência da capa | cópia da imagem de `referencia_thumb` |
+| `retakes.json` | o log dos falsos começos |
+| `candidatos.json` | as notas de todos os frames analisados |
+| `resposta.json`, `capa.*`, `copy.md` | a resposta do n8n, quando há envio |
+
+O JSON cru da ElevenLabs (`<video>.transcricao.json`) nunca é alterado.
+
+**Multipart enviado:**
+- `payload` (JSON);
+- `frame_01` … `frame_NN` (JPG, lado maior ≤ 1280 px);
+- `referencia_thumb` (a imagem de referência do modo atual; o nome do arquivo vai também no campo `referencia_thumb` do payload);
+- `asset_01` … (os assets usados na edição, ligados ao payload por `assets_usados[].campo`).
+
+### Blocos do `context.json`
+
+O arquivo tem três blocos: `global` vale para os dois modos, e `youtube` e `reels` ficam separados. O payload leva o `global` (sem o bloco `n8n`) e **só** o bloco do modo do vídeo. Os caminhos vão reduzidos ao nome do arquivo.
+
+**`global`**
+
+| Campo | Para quê |
+|---|---|
+| `canal` | `nome`, `handle_instagram`, `handle_youtube` (pode ficar vazio) |
+| `tom_de_voz` | como você fala e o que evitar; guia título, descrição e legenda |
+| `identidade` | `cor_primaria`, `cor_secundaria`, `cor_marca` (hex) |
+| `tipografia_base` | `fonte` (nome; o arquivo é procurado em `fontes_dir`), `altura_linha`, `contorno` {`cor`, `espessura_px`} |
+| `assets` | `fontes_dir`, `memes_dir`, `logos_dir`, `broll_dir`: as pastas classificam cada asset usado (meme, logo, B-roll) e nunca são enviadas inteiras. `logos`: mapa nome → arquivo; quando a fala cita o nome ("claude", "chat gpt"), o logo é anexado |
+| `n8n` | `webhook_url` e `token_env_var` (o **nome** da variável do token). Não vai no payload |
+
+**`youtube`**
+
+| Campo | Para quê |
+|---|---|
+| `thumbnail` | `largura`/`altura`; `referencia_thumb` (imagem de referência, anexada no envio); `fonte` (descrição livre do estilo) e `peso`; `cor_texto`, `cor_destaque`; `contorno`, `sombra` {`cor`, `blur_px`, `offset_px`}; `posicao_texto` (`topo`, `base`, `centro`, `esquerda`, `direita`); `max_palavras`; `composicao`; `instrucoes_extra` (instruções livres de composição) |
+| `copy` | `max_caracteres_titulo` (até 100), `exemplos_titulos`, `exemplos_texto_thumb`, `descricao_rodape`, `gerar_capitulos`, `hashtags_fixas` |
+| `frames` | `quantidade_enviada` e `candidatos_analisados` (frames só de trechos com a câmera em tela cheia) |
+
+**`reels`**
+
+| Campo | Para quê |
+|---|---|
+| `capa` | `largura`/`altura`; `referencia_thumb`; `fonte`, `peso`; `estilo_texto` e `tarjas` [{`cor_tarja`, `cor_texto`}]; `posicao_texto`; `max_palavras`, `max_linhas`; `zona_segura` {`topo_px`, `base_px`, `laterais_px`, `grid_perfil_3x4`}; `instrucoes_extra` |
+| `legenda` | `fonte`, `altura_linha`, `cor`, `contorno`, `fundo` (`"nenhum"` ou hex), `posicao`. Hoje só informa o n8n: o render do Reels ainda usa a legenda do `projeto.json` |
+| `copy` | `max_caracteres_legenda` (até 2200), `exemplos_legendas`, `exemplos_texto_thumb`, `cta`, `hashtags_fixas` |
+| `frames` | como no youtube; no Reels, ficam de fora os trechos com imagem inserida |
 
 ## Uso direto dos scripts
 
@@ -175,6 +304,8 @@ inicio,fim,motivo
 
 **`transcrever.py`** `camera`: `--txt caminho`, `--refazer`.
 
+**`enviar_n8n.py`** `projeto.json`: `--dry-run`, `--frase` (repetível), `--nota` (repetível), `--listar-retakes`, `--contexto ARQ`.
+
 ## Estrutura do repositório
 
 ```
@@ -189,6 +320,12 @@ scripts/
   youtube_timeline.py     proxies, timeline.html, servidor local, render ffmpeg, export OTIO
   sigilo.py               OCR (RapidOCR) da tela → "borroes" no projeto.json
   reels_compor.py         reenquadramento vertical, legenda karaokê, efeitos → HyperFrames
+  enviar_n8n.py           payload + frames + assets → webhook do n8n (título, descrição, capa)
+  contexto.py             carrega e valida o context.json
+  transcricao_limpa.py    transcrição crua → texto limpo no tempo editado (sem retakes "--")
+  frames.py               escolhe os melhores frames de rosto da câmera
+context.example.json      modelo do context.json (o real fica fora do git)
+specs/                    specs de funcionalidades (decisões e dúvidas antes de implementar)
 templates/
   timeline.html           interface da timeline do modo youtube
   fontes/                 Montserrat (OFL)
@@ -198,6 +335,7 @@ templates/
 tests/
   teste_sintetico.sh      teste de ponta a ponta dos dois modos
   teste_enquadramento.py  teste do reenquadramento pelo rosto
+  teste_n8n.py            context.json, transcrição limpa, --dry-run e envio (dados sintéticos)
   navegador.mjs           checa a timeline num Chrome headless (puppeteer-core)
   mock/elevenlabs/        SDK falso da ElevenLabs para os testes
 ```
@@ -215,7 +353,15 @@ O teste gera vídeos sintéticos com ffmpeg, troca a ElevenLabs por um mock (sem
 - o render do YouTube (duração e layout) e o export OTIO;
 - a composição e o render do Reels (duração, H.264/AAC, 1080x1920, 30 fps).
 
-A pasta padrão fica em `/mnt/c/Users/Public/teste editar video`, que tem espaço no nome de propósito para testar caminhos do Windows. Na primeira vez, o teste instala o `puppeteer-core` em `tests/`.
+Para o fluxo do n8n:
+
+```bash
+uv run --script tests/teste_n8n.py
+```
+
+Ele usa só dados sintéticos e um n8n falso local. Nenhuma transcrição real vai para o repositório. Para conferir também contra um vídeo seu, defina `TRANSCRICAO_REAL` e `PROJETO_REAL` com os caminhos locais.
+
+A pasta padrão do `teste_sintetico.sh` fica em `/mnt/c/Users/Public/teste editar video`, que tem espaço no nome de propósito para testar caminhos do Windows. Na primeira vez, o teste instala o `puppeteer-core` em `tests/`.
 
 ## Problemas comuns
 
